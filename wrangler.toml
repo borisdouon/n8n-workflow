@@ -1,0 +1,53 @@
+# Cloudflare Worker Configuration for n8n Workflow MCP Server
+
+name = "n8n-workflow-mcp"
+main = "src/index.ts"
+compatibility_date = "2024-11-20"
+compatibility_flags = ["nodejs_compat"]
+
+# Minify for production deployment
+minify = true
+
+# Environment variables
+[vars]
+ENVIRONMENT = "development"
+LOG_LEVEL = "info"
+
+# D1 Database configuration (for metadata storage)
+[[d1_databases]]
+binding = "DB"
+database_name = "n8n-workflows"
+database_id = "${CLOUDFLARE_D1_WORKFLOWS_ID}"
+
+# KV Namespace configuration (for caching and sessions)
+[[kv_namespaces]]
+binding = "CACHE"
+id = "${CLOUDFLARE_KV_CACHE_ID}"
+
+# AI binding for embeddings and Claude
+[[ai]]
+binding = "AI"
+
+# Vectorize configuration for semantic search
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "n8n-workflows"
+
+# Development configuration
+[env.development]
+vars = {
+  ENVIRONMENT = "development",
+  LOG_LEVEL = "debug"
+}
+
+# Production configuration
+[env.production]
+vars = {
+  ENVIRONMENT = "production",
+  LOG_LEVEL = "info"
+}
+
+# Routes for custom domains (optional)
+# [[routes]]
+# pattern = "n8n-workflow.example.com"
+# zone_name = "example.com"
