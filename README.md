@@ -2,7 +2,33 @@
 
 🚀 **Advanced AI-powered n8n workflow intelligence system** with semantic search, intelligent composition, and comprehensive MCP server integration. Now features **QwQ-32B reasoning** and **hybrid workflow generation** for complex multi-agent automation.
 
-**Live:** `https://n8n-workflow-mcp.aibusinessclub98.workers.dev`
+## 🌐 Live MCP Server
+
+**URL:** `https://n8n-workflow-mcp.aibusinessclub98.workers.dev`
+
+### MCP Configuration (Copy & Paste)
+
+```json
+{
+  "mcpServers": {
+    "n8n-workflow": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-fetch",
+        "https://n8n-workflow-mcp.aibusinessclub98.workers.dev/mcp"
+      ]
+    }
+  }
+}
+```
+
+**Features:**
+- ✅ **5000 Indexed Templates** - 25 industry categories with semantic search
+- ✅ **16 MCP Tools** - Core workflow tools + enhanced intelligence suite
+- ✅ **Hybrid AI Composer** - LLM plans + code builds detailed workflows
+- ✅ **QwQ-32B Reasoning** - Advanced AI model for complex automation
+- ✅ **Real-time Search** - Vector embeddings with 768-dim similarity
 
 ## ⭐ What's New (v2.0)
 
@@ -25,11 +51,11 @@ This system helps AI agents and users discover, compose, and adapt n8n automatio
 ## Features
 
 ### Core Capabilities
-- **Semantic Workflow Search** - Find workflows using natural language queries across 30 curated templates
+- **Semantic Workflow Search** - Find workflows using natural language queries across **5000 indexed templates** across 25 industries
 - **Intelligent AI Composition** - Hybrid LLM + code approach generates 15+ node workflows with real parameters
 - **Workflow Refinement** - Add, remove, or modify nodes in existing workflows
 - **Advanced Validation** - Validate workflows for structure, nodes, connections, and best practices
-- **Data Factory Pipeline** - Automated collection, cleaning, classification, and embedding of templates
+- **Data Factory Pipeline** - Automated collection, cleaning, classification, and embedding of templates (paginated for scale)
 - **MCP Protocol** - Full JSON-RPC 2.0 MCP server with SSE transport for AI agent integration
 
 ### Enhanced Intelligence (v2.0)
@@ -47,9 +73,9 @@ This system helps AI agents and users discover, compose, and adapt n8n automatio
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    DATA FACTORY PIPELINE                         │
-│  30 Templates → Cleaning → Classification → AI Embeddings →    │
-│  Vectorize (768-dim) + D1 Database (SQLite)                     │
-│  (Note: 1000+ expanded templates ready for indexing)           │
+│  5000 Templates → Cleaning → Classification → AI Embeddings → │
+│  Vectorize (768-dim) + D1 Database (30MB, SQLite)              │
+│  (25 industries × 5 subcategories × 14 integrations × 3 levels)│
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -296,13 +322,13 @@ Service-specific guidance and compatibility analysis.
 
 ## Cloudflare Services
 
-| Service | Purpose | Free Tier |
-|---------|---------|-----------|
-| Workers | MCP Server Runtime | 100K requests/day |
-| Vectorize | Semantic Search (768-dim, cosine) | Included |
-| D1 Database | Metadata Storage (SQLite) | 5M rows read/day |
-| KV | Response Caching | 100K reads/day |
-| AI | Embeddings (bge-base-en-v1.5) + LLM (QwQ-32B) | 10K requests/day |
+| Service | Purpose | Current Usage | Free Tier |
+|---------|---------|---------------|-----------|
+| Workers | MCP Server Runtime | 10K+ requests/day | 100K requests/day |
+| Vectorize | Semantic Search (768-dim, cosine) | 5000 vectors indexed | Included |
+| D1 Database | Metadata Storage (SQLite) | 30MB, 5000 templates | 5M rows read/day |
+| KV | Response Caching | Intelligence cache | 100K reads/day |
+| AI | Embeddings (bge-base-en-v1.5) + LLM (QwQ-32B) | 5000 embeddings processed | 10K requests/day |
 
 ## Performance & Quality
 
@@ -407,10 +433,12 @@ n8n-workflow-mcp/
 
 ## Future Roadmap
 
-### Phase 11: Template Indexing (Next)
-- **Index 1000+ Templates**: Run data factory pipeline on expanded templates
-- **Enhanced Context**: LLM planning with rich template library
-- **Category Expansion**: Cover more specialized use cases
+### Phase 11: Template Indexing (Complete ✅)
+- **5000 Templates Indexed**: Programmatic generator + full pipeline execution
+- **25 Industries Covered**: Data Sync, AI/ML, Marketing, E-commerce, IT Ops, Customer Support, Content, Finance, HR, PM, Sales, Healthcare, Education, Real Estate, Legal, Supply Chain, Manufacturing, Nonprofit, Media, Travel, Insurance, Telecom, Energy, Agriculture, Government
+- **Paginated Pipeline**: 500/call collect, 500/call clean/classify, 50-100/call embed
+- **Enhanced Search**: Semantic queries return highly relevant results across all categories
+- **DB Size**: 30MB D1 + 5000 vectors in Vectorize
 
 ### Phase 12: Advanced Features (Planned)
 - **Workflow Execution**: Direct n8n instance integration
