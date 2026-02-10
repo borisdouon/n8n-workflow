@@ -1,7 +1,20 @@
 # n8n Workflow Recommendation System - Cloudflare Architecture
 
+## Mission
+
+Build an intelligent n8n workflow generation system that:
+- Uses a **Data Factory** to collect, clean, classify, and semantically tag n8n workflow templates from multiple sources
+- Leverages **Cloudflare infrastructure** (Workers, VectorDB, D1, KV, AI) for semantic search and AI-powered workflow composition
+- Exposes the system via **MCP tools** for AI agents to compose validated n8n workflow JSON files directly
+- Operates within **Cloudflare free tier** limits (100K requests/day for Workers, 10K AI requests/day)
+
 ## Vision
-Build an intelligent n8n workflow generation system that uses a Data Factory to process n8n templates, leverages Cloudflare infrastructure for semantic search and AI-powered workflow composition, and exposes the system via MCP tools for AI agents.
+
+Create an AI-powered ecosystem where developers and automation engineers can:
+- Describe their automation needs in natural language
+- Receive complete, validated n8n workflow JSON configurations
+- Integrate seamlessly with any MCP-compatible AI agent
+- Deploy workflows instantly to their n8n instances
 
 ---
 
@@ -42,7 +55,7 @@ graph TD
         F[(VectorDB - AI Embeddings)]
         G[(D1 - Metadata)]
         KV[(KV - Sessions)]
-        AI[(Cloudflare AI - Claude)]
+        AI[(Cloudflare AI - Llama)]
     end
 ```
 
@@ -51,72 +64,105 @@ graph TD
 ## Cloudflare Infrastructure
 
 ### Services Used
+
 | Service | Purpose | Free Tier |
 |---------|---------|-----------|
 | Cloudflare Worker | MCP Server Runtime | 100,000 requests/day |
 | Vector DB | Semantic Search Storage | Included |
 | D1 Database | Metadata & Classification | Included |
 | KV Storage | Session & Cache | 100,000 reads/day |
-| Cloudflare AI | Claude/LLM Inference | 10,000 AI requests/day |
+| Cloudflare AI | Llama/LLM Inference | 10,000 AI requests/day |
+
+### AI Models (Free Tier)
+
+Cloudflare Workers AI supports several Llama models on the free tier:
+
+| Model | ID | Context | Use Case |
+|-------|-----|---------|----------|
+| Llama 3 | `@cf/meta/llama-3-8b-instruct` | 8K tokens | General workflow composition |
+| Llama 3.1 | `@cf/meta/llama-3.1-8b-instruct` | 128K tokens | Complex multi-step workflows |
+| Llama 3.2 | `@cf/meta/llama-3.2-11b-instruct` | 128K tokens | Large context workflows |
+| Llama Guard | `@cf/meta/llama-guard-3-8b` | 8K tokens | Content safety filtering |
+
+**Recommended**: `@cf/meta/llama-3.1-8b-instruct` for best balance of capability and free tier usage.
+
+### Embedding Models
+
+| Model | ID | Dimensions |
+|-------|-----|------------|
+| BGE Base | `@cf/baai/bge-base-en-v1.5` | 768 |
+| BGE Large | `@cf/baai/bge-large-en-v1.5` | 1024 |
 
 ---
 
 ## Data Factory Pipeline
 
 ### 1. n8n Template Collection
-**Source**: n8n community workflows, template library, user submissions
+
+**Sources**:
+- n8n community workflows (api.n8n.io)
+- GitHub repositories with n8n templates
+- User submissions and custom templates
+
 **Collected Data**:
 - Workflow JSON files
-- Node configurations
-- Integration metadata
-- Use case descriptions
-- Workflow patterns
+- Node configurations and parameters
+- Integration metadata (services, APIs)
+- Use case descriptions and tags
+- Workflow patterns and structures
 
 ### 2. Data Cleaning
+
 **Operations**:
-- Remove sensitive information (credentials, API keys)
-- Normalize node names and types
-- Extract core workflow structure
-- Validate JSON format
-- Remove duplicate workflows
+- Remove sensitive information (credentials, API keys, tokens)
+- Normalize node names and types to consistent format
+- Extract core workflow structure (triggers, actions, connections)
+- Validate JSON format and schema compliance
+- Detect and remove duplicate workflows
+- Sanitize HTML/markdown in descriptions
 
 ### 3. Classification Engine
+
 **Categories**:
-- Data Synchronization
-- Marketing Automation
-- Customer Support
-- Content Management
-- E-commerce Operations
-- DevOps & Monitoring
-- Reporting & Analytics
-- Lead Generation & CRM
-- Notification Systems
-- Document Processing
+1. Data Synchronization
+2. Marketing Automation
+3. Customer Support
+4. Content Management
+5. E-commerce Operations
+6. DevOps & Monitoring
+7. Reporting & Analytics
+8. Lead Generation & CRM
+9. Notification Systems
+10. Document Processing
 
 **Classification Criteria**:
-- Trigger types
-- Node compositions
-- Integration patterns
-- Use case keywords
+- Trigger types (schedule, webhook, event, manual)
+- Node compositions and complexity
+- Integration patterns (API calls, data transforms)
+- Use case keywords and semantic meaning
 
 ### 4. Semantic Tagging
-**Tags Generated**:
-- Integration tags (e.g., "slack", "google-sheets", "airtable")
-- Pattern tags (e.g., "webhook", "schedule", "conditional")
-- Complexity tags (e.g., "beginner", "intermediate", "advanced")
-- Use case tags (e.g., "lead-capture", "notifications", "sync")
+
+**Tag Types**:
+- **Integration Tags**: `slack`, `google-sheets`, `airtable`, `stripe`, `Notion`, `Discord`
+- **Pattern Tags**: `webhook`, `schedule`, `conditional`, `batch`, `real-time`
+- **Complexity Tags**: `beginner`, `intermediate`, `advanced`, `expert`
+- **Use Case Tags**: `lead-capture`, `notifications`, `sync`, `backup`, `reporting`
 
 ### 5. Vector Embeddings
-**Model**: Cloudflare AI Embeddings
-**Dimensions**: 768 or 1024
-**Storage**: VectorDB
-**Purpose**: Semantic similarity search
+
+**Pipeline**:
+- Generate embeddings using Cloudflare AI BGE model
+- Store 768-dimensional vectors in VectorDB
+- Enable semantic similarity search
+- Support hybrid search (keyword + semantic)
 
 ---
 
 ## MCP Server Tools
 
 ### Tool 1: `compose_workflow`
+
 Generate a complete n8n workflow JSON from a user request.
 
 **Input**:
@@ -153,6 +199,7 @@ Generate a complete n8n workflow JSON from a user request.
 ```
 
 ### Tool 2: `search_workflows`
+
 Search the semantic database for similar workflows.
 
 **Input**:
@@ -183,6 +230,7 @@ Search the semantic database for similar workflows.
 ```
 
 ### Tool 3: `refine_workflow`
+
 Iteratively improve a generated workflow.
 
 **Input**:
@@ -210,6 +258,7 @@ Iteratively improve a generated workflow.
 ```
 
 ### Tool 4: `validate_workflow`
+
 Validate a workflow JSON structure.
 
 **Input**:
@@ -241,10 +290,10 @@ Validate a workflow JSON structure.
 4. Determine complexity level
 
 ### Step 2: Semantic Search
-1. Generate query embedding
+1. Generate query embedding using BGE model
 2. Search VectorDB for similar workflows
-3. Fetch metadata from D1
-4. Rank results by similarity
+3. Fetch metadata from D1 database
+4. Rank results by similarity score
 
 ### Step 3: Template Selection
 1. Select best-matching templates
@@ -252,21 +301,21 @@ Validate a workflow JSON structure.
 3. Extract reusable components
 
 ### Step 4: AI Composition
-1. Build prompt with context
-2. Send to Cloudflare AI (Claude)
+1. Build prompt with context and template data
+2. Send to Cloudflare AI (Llama 3.1)
 3. Generate workflow structure
 4. Insert node configurations
-5. Add error handling
+5. Add error handling patterns
 
 ### Step 5: Validation
-1. Validate JSON structure
-2. Check node compatibility
-3. Verify connection logic
-4. Test against n8n schema
+1. Validate JSON structure against n8n schema
+2. Check node compatibility and versions
+3. Verify connection logic and data flow
+4. Test for common errors
 
 ### Step 6: Output
-1. Format response
-2. Include metadata
+1. Format response with metadata
+2. Include confidence score
 3. Return to user/agent
 
 ---
@@ -282,6 +331,7 @@ n8n-workflow-cloudflare/
 │
 ├── src/
 │   ├── index.ts                     # Worker entry point
+│   │
 │   ├── mcp/
 │   │   ├── server.ts               # MCP server setup
 │   │   ├── tools/
@@ -293,7 +343,7 @@ n8n-workflow-cloudflare/
 │   │       └── request.ts          # Request handlers
 │   │
 │   ├── data-factory/
-│   │   ├── collector.ts             # Template collection
+│   │   ├── collector.ts            # Template collection
 │   │   ├── cleaner.ts              # Data cleaning
 │   │   ├── classifier.ts           # Classification engine
 │   │   ├── tagger.ts               # Semantic tagging
@@ -321,7 +371,7 @@ n8n-workflow-cloudflare/
 │
 ├── data/
 │   ├── raw/                         # Raw n8n templates
-│   ├── processed/                  # Cleaned data
+│   ├── processed/                   # Cleaned data
 │   └── schema/                     # JSON schemas
 │
 ├── scripts/
@@ -330,12 +380,12 @@ n8n-workflow-cloudflare/
 │   └── test.ts                     # Test runner
 │
 ├── tests/
-│   ├── unit/                       # Unit tests
+│   ├── unit/                        # Unit tests
 │   └── integration/                # Integration tests
 │
 └── docs/
     ├── api.md                      # API documentation
-    └── deployment.md               # Deployment guide
+    └── deployment.md                # Deployment guide
 ```
 
 ---
@@ -343,6 +393,7 @@ n8n-workflow-cloudflare/
 ## Cloudflare Configuration
 
 ### wrangler.toml
+
 ```toml
 name = "n8n-workflow-mcp"
 main = "src/index.ts"
@@ -350,6 +401,8 @@ compatibility_date = "2024-01-01"
 
 [vars]
 ENVIRONMENT = "production"
+AI_MODEL = "@cf/meta/llama-3.1-8b-instruct"
+EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5"
 
 [[d1_databases]]
 binding = "DB"
@@ -373,17 +426,20 @@ index_name = "n8n-workflows"
 ## Data Factory Workflow
 
 ### Collection Phase
+
 ```typescript
 async function collectTemplates(): Promise<void> {
-  const templates = await fetchFromN8nCommunity();
+  const communityTemplates = await fetchFromN8nCommunity();
+  const githubTemplates = await fetchFromGitHub();
   const localTemplates = await loadLocalTemplates();
-  const allTemplates = [...templates, ...localTemplates];
+  const allTemplates = [...communityTemplates, ...githubTemplates, ...localTemplates];
   
   await saveRawTemplates(allTemplates);
 }
 ```
 
 ### Cleaning Phase
+
 ```typescript
 async function cleanTemplates(): Promise<void> {
   const rawTemplates = await loadRawTemplates();
@@ -400,6 +456,7 @@ async function cleanTemplates(): Promise<void> {
 ```
 
 ### Classification Phase
+
 ```typescript
 async function classifyTemplates(): Promise<void> {
   const cleaned = await loadCleanedTemplates();
@@ -425,6 +482,7 @@ async function classifyTemplates(): Promise<void> {
 ## MCP Server Implementation
 
 ### Server Setup
+
 ```typescript
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -466,6 +524,7 @@ server.connect(transport);
 ## Deployment
 
 ### Deploy to Cloudflare
+
 ```bash
 # Install dependencies
 npm install
@@ -478,10 +537,19 @@ npx wrangler d1 execute --file=scripts/seed.sql
 ```
 
 ### Environment Variables
+
 ```env
+# AI Configuration
+AI_MODEL=@cf/meta/llama-3.1-8b-instruct
+EMBEDDING_MODEL=@cf/baai/bge-base-en-v1.5
+
+# Data Sources
 N8N_COMMUNITY_API_URL=https://api.n8n.io
-AI_MODEL=claude-3-haiku
-EMBEDDING_MODEL=bge-base-en-v1.5
+GITHUB_API_URL=https://api.github.com
+
+# Database
+DATABASE_NAME=n8n-workflows
+VECTOR_INDEX=n8n-workflows
 ```
 
 ---
@@ -498,11 +566,14 @@ EMBEDDING_MODEL=bge-base-en-v1.5
 
 ---
 
-## Next Steps
+## Database Schema Reference
 
-1. Set up Cloudflare Worker project
-2. Implement Data Factory pipeline
-3. Build semantic search engine
-4. Create AI agent workflow composer
-5. Integrate MCP server tools
-6. Deploy and test
+See [`plans/database_schema.sql`](plans/database_schema.sql) for D1 database schema design.
+
+---
+
+## VectorDB Schema Reference
+
+See [`plans/vector-db-schema.md`](plans/vector-db-schema.md) for VectorDB index configuration.
+
+---
