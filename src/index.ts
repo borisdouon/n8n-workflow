@@ -200,7 +200,14 @@ async function executeTool(env: Env, toolName: string, args: Record<string, unkn
     }
 
     default:
-      return { content: [{ type: 'text', text: `Unknown tool: ${toolName}` }], isError: true };
+      // Try enhanced tools handler
+      try {
+        const result = await handleEnhancedMcpTool(env, toolName, args);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        log(`Enhanced tool ${toolName} failed:`, error);
+        return { content: [{ type: 'text', text: `Unknown tool: ${toolName}` }], isError: true };
+      }
   }
 }
 
