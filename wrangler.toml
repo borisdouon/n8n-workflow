@@ -16,16 +16,16 @@ LOG_LEVEL = "info"
 # D1 Database configuration (for metadata storage)
 [[d1_databases]]
 binding = "DB"
-database_name = "n8n-workflows"
-database_id = "${CLOUDFLARE_D1_WORKFLOWS_ID}"
+database_name = "n8n-workflow-mcp"
+database_id = "b013e5f3-43ce-4558-94a7-790d472f2d66"
 
 # KV Namespace configuration (for caching and sessions)
 [[kv_namespaces]]
 binding = "CACHE"
-id = "${CLOUDFLARE_KV_CACHE_ID}"
+id = "983a070e10094affaf1ef65d0dab558c"
 
-# AI binding for embeddings and Claude
-[[ai]]
+# AI binding for embeddings and LLM
+[ai]
 binding = "AI"
 
 # Vectorize configuration for semantic search
@@ -35,17 +35,11 @@ index_name = "n8n-workflows"
 
 # Development configuration
 [env.development]
-vars = {
-  ENVIRONMENT = "development",
-  LOG_LEVEL = "debug"
-}
+vars = { ENVIRONMENT = "development", LOG_LEVEL = "debug" }
 
 # Production configuration
 [env.production]
-vars = {
-  ENVIRONMENT = "production",
-  LOG_LEVEL = "info"
-}
+vars = { ENVIRONMENT = "production", LOG_LEVEL = "info" }
 
 # Routes for custom domains (optional)
 # [[routes]]

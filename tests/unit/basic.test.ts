@@ -1,179 +1,427 @@
 /**
- * Basic Unit Tests for n8n Workflow MCP Server
+ * Comprehensive Unit Tests for n8n Workflow MCP Server
  * 
- * Tests the basic project setup and structure validation.
+ * Tests all modules: helpers, collector, cleaner, classifier, composer, and MCP server.
  */
 
 import { describe, it, expect } from 'vitest';
+import { toolDefinitions } from '../../src/index';
+import { log, setLogLevel } from '../../src/utils/logger';
+import {
+  textSimilarity, assessComplexity, generateEmbeddingText,
+  stripCredentials, extractIntegrations, generateWorkflowId,
+} from '../../src/utils/helpers';
+import { getKnowledgeBaseTemplates, buildWorkflowJson } from '../../src/data-factory/collector';
+import { validateWorkflow } from '../../src/composer/generator';
+import type { N8nWorkflow, ValidateRequest } from '../../src/models/types';
 
-// Mock environment
-const mockEnv: Env = {
-  ENVIRONMENT: 'test',
-  LOG_LEVEL: 'debug'
-};
+// ============================================================================
+// Utils: Logger Tests
+// ============================================================================
 
-describe('Project Setup', () => {
-  describe('TypeScript Configuration', () => {
-    it('should have valid tsconfig.json', () => {
-      expect(true).toBe(true);
+describe('Logger', () => {
+  it('should not throw on any log level', () => {
+    setLogLevel('debug');
+    expect(() => log('debug', 'test debug')).not.toThrow();
+    expect(() => log('info', 'test info')).not.toThrow();
+    expect(() => log('warn', 'test warn')).not.toThrow();
+    expect(() => log('error', 'test error')).not.toThrow();
+  });
+
+  it('should accept optional data object', () => {
+    expect(() => log('info', 'with data', { key: 'value', count: 42 })).not.toThrow();
+  });
+});
+
+// ============================================================================
+// Utils: Helper Tests
+// ============================================================================
+
+describe('Helpers', () => {
+  describe('textSimilarity', () => {
+    it('should return 1 for identical strings', () => {
+      expect(textSimilarity('hello world', 'hello world')).toBe(1);
+    });
+
+    it('should return 0 for completely different strings', () => {
+      expect(textSimilarity('abc', 'xyz')).toBe(0);
+    });
+
+    it('should return value between 0 and 1 for partial matches', () => {
+      const score = textSimilarity('sync airtable sheets', 'airtable to google sheets sync');
+      expect(score).toBeGreaterThan(0);
+      expect(score).toBeLessThanOrEqual(1);
+    });
+
+    it('should be case-insensitive', () => {
+      expect(textSimilarity('Hello World', 'hello world')).toBe(1);
     });
   });
 
-  describe('Environment Configuration', () => {
-    it('should have wrangler.toml configuration', () => {
-      const wranglerConfig = `
-name = "n8n-workflow-mcp"
-main = "src/index.ts"
-compatibility_date = "2024-11-20"
-      `.trim();
-      
-      expect(wranglerConfig).toContain('name = "n8n-workflow-mcp"');
-      expect(wranglerConfig).toContain('main = "src/index.ts"');
+  describe('assessComplexity', () => {
+    it('should return beginner for simple workflows', () => {
+      const workflow: N8nWorkflow = {
+        name: 'Simple',
+        nodes: [
+          { name: 'Trigger', type: 'n8n-nodes-base.scheduleTrigger', position: [0, 0], parameters: {} },
+          { name: 'Action', type: 'n8n-nodes-base.httpRequest', position: [200, 0], parameters: {} },
+        ],
+        connections: {},
+      };
+      expect(assessComplexity(workflow)).toBe('beginner');
     });
 
-    it('should have environment variables defined', () => {
-      expect(mockEnv.ENVIRONMENT).toBe('test');
-      expect(mockEnv.LOG_LEVEL).toBe('debug');
+    it('should return intermediate for workflows with conditionals', () => {
+      const workflow: N8nWorkflow = {
+        name: 'Medium',
+        nodes: [
+          { name: 'Trigger', type: 'n8n-nodes-base.scheduleTrigger', position: [0, 0], parameters: {} },
+          { name: 'IF', type: 'n8n-nodes-base.if', position: [200, 0], parameters: {} },
+          { name: 'Action1', type: 'n8n-nodes-base.httpRequest', position: [400, 0], parameters: {} },
+          { name: 'Action2', type: 'n8n-nodes-base.slack', position: [400, 200], parameters: {} },
+          { name: 'End', type: 'n8n-nodes-base.noOp', position: [600, 0], parameters: {} },
+        ],
+        connections: {},
+      };
+      expect(assessComplexity(workflow)).toBe('intermediate');
+    });
+
+    it('should return advanced for complex workflows', () => {
+      const nodes = Array.from({ length: 10 }, (_, i) => ({
+        name: `Node${i}`,
+        type: i === 2 ? 'n8n-nodes-base.if' : i === 5 ? 'n8n-nodes-base.splitInBatches' : 'n8n-nodes-base.httpRequest',
+        position: [i * 200, 0] as [number, number],
+        parameters: {},
+      }));
+      const workflow: N8nWorkflow = { name: 'Complex', nodes, connections: {} };
+      expect(assessComplexity(workflow)).toBe('advanced');
     });
   });
 
-  describe('MCP Server Structure', () => {
-    it('should have createMcpServer function exported', () => {
-      expect(typeof createMcpServer).toBe('function');
+  describe('generateEmbeddingText', () => {
+    it('should combine name, description, category, and tags', () => {
+      const text = generateEmbeddingText({
+        name: 'Test Workflow',
+        description: 'A test workflow for unit testing',
+        category: 'Testing',
+        tags: ['test', 'unit'],
+      });
+      expect(text).toContain('Test Workflow');
+      expect(text).toContain('unit testing');
+      expect(text).toContain('Testing');
+      expect(text).toContain('test, unit');
     });
 
-    it('should register compose_workflow tool', () => {
-      const toolNames = toolDefinitions.map(t => t.name);
-      expect(toolNames).toContain('compose_workflow');
+    it('should include node info when provided', () => {
+      const text = generateEmbeddingText({
+        name: 'WF',
+        description: 'desc',
+        category: 'cat',
+        tags: [],
+        nodes: [{ type: 'n8n-nodes-base.slack', name: 'Slack' }],
+      });
+      expect(text).toContain('Slack');
+    });
+  });
+
+  describe('stripCredentials', () => {
+    it('should remove credentials from all nodes', () => {
+      const workflow: N8nWorkflow = {
+        name: 'Test',
+        nodes: [
+          {
+            name: 'Slack',
+            type: 'n8n-nodes-base.slack',
+            position: [0, 0],
+            parameters: {},
+            credentials: { slackApi: { id: 'secret123' } },
+          },
+        ],
+        connections: {},
+      };
+      const cleaned = stripCredentials(workflow);
+      expect(cleaned.nodes[0]!.credentials).toBeUndefined();
+    });
+  });
+
+  describe('generateWorkflowId', () => {
+    it('should generate a non-empty string', () => {
+      const id = generateWorkflowId('Marketing', 'Email Campaign Automation');
+      expect(id).toBeTruthy();
+      expect(typeof id).toBe('string');
     });
 
-    it('should register search_workflows tool', () => {
-      const toolNames = toolDefinitions.map(t => t.name);
-      expect(toolNames).toContain('search_workflows');
+    it('should produce different IDs for different inputs', () => {
+      const id1 = generateWorkflowId('A', 'Test One');
+      const id2 = generateWorkflowId('B', 'Test Two');
+      expect(id1).not.toBe(id2);
+    });
+  });
+
+  describe('extractIntegrations', () => {
+    it('should extract service names from node types', () => {
+      const workflow: N8nWorkflow = {
+        name: 'Test',
+        nodes: [
+          { name: 'Slack', type: 'n8n-nodes-base.slack', position: [0, 0], parameters: {} },
+          { name: 'GSheets', type: 'n8n-nodes-base.googleSheets', position: [200, 0], parameters: {} },
+        ],
+        connections: {},
+      };
+      const integrations = extractIntegrations(workflow);
+      expect(integrations.length).toBeGreaterThan(0);
     });
 
-    it('should register refine_workflow tool', () => {
-      const toolNames = toolDefinitions.map(t => t.name);
-      expect(toolNames).toContain('refine_workflow');
-    });
-
-    it('should register validate_workflow tool', () => {
-      const toolNames = toolDefinitions.map(t => t.name);
-      expect(toolNames).toContain('validate_workflow');
+    it('should skip utility nodes', () => {
+      const workflow: N8nWorkflow = {
+        name: 'Test',
+        nodes: [
+          { name: 'IF', type: 'n8n-nodes-base.if', position: [0, 0], parameters: {} },
+          { name: 'Set', type: 'n8n-nodes-base.set', position: [200, 0], parameters: {} },
+        ],
+        connections: {},
+      };
+      const integrations = extractIntegrations(workflow);
+      expect(integrations.length).toBe(0);
     });
   });
 });
 
-describe('Logging Utility', () => {
-  it('should log debug messages', () => {
-    expect(() => log('debug', 'Test debug message')).not.toThrow();
-  });
+// ============================================================================
+// Data Factory: Collector Tests
+// ============================================================================
 
-  it('should log info messages', () => {
-    expect(() => log('info', 'Test info message')).not.toThrow();
-  });
+describe('Data Factory - Collector', () => {
+  describe('getKnowledgeBaseTemplates', () => {
+    const templates = getKnowledgeBaseTemplates();
 
-  it('should log warn messages', () => {
-    expect(() => log('warn', 'Test warn message')).not.toThrow();
-  });
+    it('should return 30 templates (3 per category × 10 categories)', () => {
+      expect(templates.length).toBe(30);
+    });
 
-  it('should log error messages', () => {
-    expect(() => log('error', 'Test error message')).not.toThrow();
-  });
+    it('should cover all 10 categories', () => {
+      const categories = new Set(templates.map(t => t.category));
+      expect(categories.size).toBe(10);
+      expect(categories.has('Data Synchronization')).toBe(true);
+      expect(categories.has('Marketing Automation')).toBe(true);
+      expect(categories.has('Customer Support')).toBe(true);
+      expect(categories.has('Content Management')).toBe(true);
+      expect(categories.has('E-commerce Operations')).toBe(true);
+      expect(categories.has('DevOps & Monitoring')).toBe(true);
+      expect(categories.has('Reporting & Analytics')).toBe(true);
+      expect(categories.has('Lead Generation & CRM')).toBe(true);
+      expect(categories.has('Notification Systems')).toBe(true);
+      expect(categories.has('Document Processing')).toBe(true);
+    });
 
-  it('should log messages with data', () => {
-    expect(() => log('info', 'Test message', { key: 'value' })).not.toThrow();
-  });
-});
+    it('should have unique IDs', () => {
+      const ids = templates.map(t => t.id);
+      const uniqueIds = new Set(ids);
+      expect(uniqueIds.size).toBe(ids.length);
+    });
 
-describe('Workflow Composition Tool', () => {
-  it('should have compose_workflow tool definition', () => {
-    const tool = toolDefinitions.find(t => t.name === 'compose_workflow');
-    expect(tool).toBeDefined();
-    expect(tool?.description).toContain('n8n workflow');
-    expect(tool?.inputSchema.properties.request).toBeDefined();
-  });
-
-  it('should accept valid compose_workflow parameters', () => {
-    const request = 'Create a workflow that syncs Typeform responses to Google Sheets';
-    const requirements = {
-      integrations: ['typeform', 'google-sheets'],
-      trigger_type: 'form_submission' as const,
-      complexity: 'intermediate' as const,
-      include_error_handling: true
-    };
-
-    expect(typeof request).toBe('string');
-    expect(Array.isArray(requirements.integrations)).toBe(true);
-  });
-});
-
-describe('Search Workflows Tool', () => {
-  it('should have search_workflows tool definition', () => {
-    const tool = toolDefinitions.find(t => t.name === 'search_workflows');
-    expect(tool).toBeDefined();
-    expect(tool?.description).toContain('semantic workflow');
-    expect(tool?.inputSchema.properties.query).toBeDefined();
-  });
-
-  it('should accept valid search parameters', () => {
-    const query = 'form submission to crm';
-    const filters = {
-      category: 'lead_generation',
-      complexity: ['beginner', 'intermediate'],
-      limit: 5
-    };
-
-    expect(typeof query).toBe('string');
-    expect(typeof filters.category).toBe('string');
-    expect(Array.isArray(filters.complexity)).toBe(true);
-  });
-});
-
-describe('Refine Workflow Tool', () => {
-  it('should have refine_workflow tool definition', () => {
-    const tool = toolDefinitions.find(t => t.name === 'refine_workflow');
-    expect(tool).toBeDefined();
-    expect(tool?.description).toContain('refine');
-    expect(tool?.inputSchema.properties.workflow_id).toBeDefined();
-    expect(tool?.inputSchema.properties.modifications).toBeDefined();
-  });
-
-  it('should accept valid refinement parameters', () => {
-    const workflow_id = 'workflow_123';
-    const modifications = [
-      {
-        type: 'add_node' as const,
-        node_type: 'email',
-        position: 3,
-        config: { to: '{{ $json.email }}' }
+    it('each template should have required fields', () => {
+      for (const t of templates) {
+        expect(t.id).toBeTruthy();
+        expect(t.name).toBeTruthy();
+        expect(t.category).toBeTruthy();
+        expect(t.description).toBeTruthy();
+        expect(t.use_cases.length).toBeGreaterThan(0);
+        expect(t.nodes.length).toBeGreaterThan(0);
+        expect(t.integrations.length).toBeGreaterThan(0);
+        expect(t.tags.length).toBeGreaterThan(0);
+        expect(['beginner', 'intermediate', 'advanced']).toContain(t.complexity);
+        expect(t.pattern).toBeTruthy();
       }
-    ];
+    });
 
-    expect(typeof workflow_id).toBe('string');
-    expect(Array.isArray(modifications)).toBe(true);
-    expect(modifications[0].type).toBe('add_node');
+    it('should have 3 complexity levels distributed', () => {
+      const beginner = templates.filter(t => t.complexity === 'beginner');
+      const intermediate = templates.filter(t => t.complexity === 'intermediate');
+      const advanced = templates.filter(t => t.complexity === 'advanced');
+      expect(beginner.length).toBeGreaterThan(0);
+      expect(intermediate.length).toBeGreaterThan(0);
+      expect(advanced.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('buildWorkflowJson', () => {
+    const templates = getKnowledgeBaseTemplates();
+
+    it('should generate valid n8n workflow JSON', () => {
+      const template = templates[0]!;
+      const workflow = buildWorkflowJson(template);
+      expect(workflow.name).toBe(template.name);
+      expect(workflow.nodes.length).toBe(template.nodes.length);
+      expect(workflow.connections).toBeDefined();
+      expect(workflow.settings).toBeDefined();
+    });
+
+    it('should chain nodes in connections', () => {
+      const template = templates[0]!;
+      const workflow = buildWorkflowJson(template);
+      // Should have connections for all nodes except the last
+      expect(Object.keys(workflow.connections).length).toBe(template.nodes.length - 1);
+    });
+
+    it('should position nodes left-to-right', () => {
+      const template = templates[0]!;
+      const workflow = buildWorkflowJson(template);
+      for (let i = 1; i < workflow.nodes.length; i++) {
+        expect(workflow.nodes[i]!.position[0]).toBeGreaterThan(workflow.nodes[i - 1]!.position[0]);
+      }
+    });
+
+    it('should work for all 30 templates', () => {
+      for (const template of templates) {
+        const workflow = buildWorkflowJson(template);
+        expect(workflow.name).toBe(template.name);
+        expect(workflow.nodes.length).toBeGreaterThan(0);
+      }
+    });
   });
 });
 
-describe('Validate Workflow Tool', () => {
-  it('should have validate_workflow tool definition', () => {
-    const tool = toolDefinitions.find(t => t.name === 'validate_workflow');
-    expect(tool).toBeDefined();
-    expect(tool?.description).toContain('Validate');
-    expect(tool?.inputSchema.properties.workflow).toBeDefined();
+// ============================================================================
+// Composer: Validation Tests
+// ============================================================================
+
+describe('Workflow Validator', () => {
+  it('should validate a correct workflow', () => {
+    const workflow: N8nWorkflow = {
+      name: 'Valid Workflow',
+      nodes: [
+        { name: 'Webhook Trigger', type: 'n8n-nodes-base.webhookTrigger', position: [250, 300], parameters: {} },
+        { name: 'HTTP Request', type: 'n8n-nodes-base.httpRequest', position: [450, 300], parameters: {} },
+      ],
+      connections: {
+        'Webhook Trigger': { main: [[{ node: 'HTTP Request', type: 'main', index: 0 }]] },
+      },
+      settings: { executionOrder: 'v1' },
+    };
+    const result = validateWorkflow({ workflow });
+    expect(result.is_valid).toBe(true);
+    expect(result.issues.length).toBe(0);
   });
 
-  it('should accept valid workflow validation parameters', () => {
-    const workflow = {
-      name: 'Test Workflow',
-      nodes: [],
-      connections: {}
-    };
-    const checks = ['structure', 'nodes', 'connections'];
+  it('should flag missing workflow name', () => {
+    const workflow = { name: '', nodes: [{ name: 'N', type: 'T', position: [0, 0], parameters: {} }], connections: {} } as N8nWorkflow;
+    const result = validateWorkflow({ workflow, checks: ['structure'] });
+    expect(result.issues.some(i => i.message.includes('name'))).toBe(true);
+  });
 
-    expect(typeof workflow).toBe('object');
-    expect(Array.isArray(checks)).toBe(true);
-    expect(checks).toContain('structure');
+  it('should flag empty nodes array', () => {
+    const workflow: N8nWorkflow = { name: 'Test', nodes: [], connections: {} };
+    const result = validateWorkflow({ workflow, checks: ['structure'] });
+    expect(result.issues.some(i => i.message.includes('no nodes'))).toBe(true);
+  });
+
+  it('should flag missing trigger node', () => {
+    const workflow: N8nWorkflow = {
+      name: 'No Trigger',
+      nodes: [
+        { name: 'Action', type: 'n8n-nodes-base.httpRequest', position: [0, 0], parameters: {} },
+      ],
+      connections: {},
+    };
+    const result = validateWorkflow({ workflow, checks: ['nodes'] });
+    expect(result.warnings.some(w => w.message.includes('trigger'))).toBe(true);
+  });
+
+  it('should flag duplicate node names', () => {
+    const workflow: N8nWorkflow = {
+      name: 'Dups',
+      nodes: [
+        { name: 'Same', type: 'n8n-nodes-base.httpRequest', position: [0, 0], parameters: {} },
+        { name: 'Same', type: 'n8n-nodes-base.httpRequest', position: [200, 0], parameters: {} },
+      ],
+      connections: {},
+    };
+    const result = validateWorkflow({ workflow, checks: ['nodes'] });
+    expect(result.issues.some(i => i.message.includes('Duplicate'))).toBe(true);
+  });
+
+  it('should flag connections pointing to non-existent nodes', () => {
+    const workflow: N8nWorkflow = {
+      name: 'Bad Connection',
+      nodes: [
+        { name: 'NodeA', type: 'n8n-nodes-base.httpRequest', position: [0, 0], parameters: {} },
+      ],
+      connections: {
+        'NodeA': { main: [[{ node: 'NonExistent', type: 'main', index: 0 }]] },
+      },
+    };
+    const result = validateWorkflow({ workflow, checks: ['connections'] });
+    expect(result.issues.some(i => i.message.includes('NonExistent'))).toBe(true);
+  });
+
+  it('should warn about missing settings', () => {
+    const workflow: N8nWorkflow = {
+      name: 'No Settings',
+      nodes: [{ name: 'N', type: 'T', position: [0, 0], parameters: {} }],
+      connections: {},
+    };
+    const result = validateWorkflow({ workflow, checks: ['structure'] });
+    expect(result.warnings.some(w => w.message.includes('settings'))).toBe(true);
+  });
+
+  it('should run best_practices checks', () => {
+    const nodes = Array.from({ length: 5 }, (_, i) => ({
+      name: `Node${i}`, type: 'n8n-nodes-base.httpRequest',
+      position: [i * 200, 0] as [number, number], parameters: {},
+    }));
+    const workflow: N8nWorkflow = { name: 'Test', nodes, connections: {}, settings: {} };
+    const result = validateWorkflow({ workflow, checks: ['best_practices'] });
+    expect(result.suggestions.some(s => s.includes('error handling'))).toBe(true);
+  });
+});
+
+// ============================================================================
+// MCP Server: Tool Definitions Tests
+// ============================================================================
+
+describe('MCP Server - Tool Definitions', () => {
+  it('should export 6 tools', () => {
+    expect(toolDefinitions.length).toBe(6);
+  });
+
+  it('should include all required tools', () => {
+    const names = toolDefinitions.map(t => t.name);
+    expect(names).toContain('compose_workflow');
+    expect(names).toContain('search_workflows');
+    expect(names).toContain('refine_workflow');
+    expect(names).toContain('validate_workflow');
+    expect(names).toContain('run_pipeline');
+    expect(names).toContain('pipeline_status');
+  });
+
+  it('each tool should have name, description, and inputSchema', () => {
+    for (const tool of toolDefinitions) {
+      expect(tool.name).toBeTruthy();
+      expect(tool.description).toBeTruthy();
+      expect(tool.inputSchema).toBeDefined();
+      expect(tool.inputSchema.type).toBe('object');
+    }
+  });
+
+  it('compose_workflow should require "request" parameter', () => {
+    const tool = toolDefinitions.find(t => t.name === 'compose_workflow');
+    expect(tool?.inputSchema.required).toContain('request');
+  });
+
+  it('search_workflows should require "query" parameter', () => {
+    const tool = toolDefinitions.find(t => t.name === 'search_workflows');
+    expect(tool?.inputSchema.required).toContain('query');
+  });
+
+  it('refine_workflow should require workflow_id and modifications', () => {
+    const tool = toolDefinitions.find(t => t.name === 'refine_workflow');
+    expect(tool?.inputSchema.required).toContain('workflow_id');
+    expect(tool?.inputSchema.required).toContain('modifications');
+  });
+
+  it('validate_workflow should require "workflow" parameter', () => {
+    const tool = toolDefinitions.find(t => t.name === 'validate_workflow');
+    expect(tool?.inputSchema.required).toContain('workflow');
   });
 });
