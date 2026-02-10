@@ -124,10 +124,15 @@ function generateTags(
 /**
  * Classify all cleaned workflows in the database (batched D1 operations)
  */
-export async function classifyAllWorkflows(env: Env): Promise<{ classified: number; failed: number }> {
+export async function classifyAllWorkflows(env: Env, limit: number = 500): Promise<{ classified: number; failed: number; remaining: number }> {
   const rows = await env.DB.prepare(
-    "SELECT * FROM workflows WHERE processing_status = 'cleaning'"
-  ).all<WorkflowRow>();
+    "SELECT * FROM workflows WHERE processing_status = 'cleaning' LIMIT ?"
+  ).bind(limit).all<WorkflowRow>();
+
+  const countResult = await env.DB.prepare(
+    "SELECT COUNT(*) as cnt FROM workflows WHERE processing_status = 'cleaning'"
+  ).first<{ cnt: number }>();
+  const totalPending = countResult?.cnt || 0;
 
   const updateStmts: D1PreparedStatement[] = [];
   const logStmts: D1PreparedStatement[] = [];
@@ -170,20 +175,28 @@ export async function classifyAllWorkflows(env: Env): Promise<{ classified: numb
     }
   }
 
-  // Phase 2: Batch update workflows
-  if (updateStmts.length > 0) await env.DB.batch(updateStmts);
+  // Phase 2: Batch update workflows (sub-batch for D1 limit)
+  for (let i = 0; i < updateStmts.length; i += 100) {
+    await env.DB.batch(updateStmts.slice(i, i + 100));
+  }
 
   // Phase 3: Batch insert new tags
   const tagInsertStmts = Array.from(newTags).map(tag =>
     env.DB.prepare('INSERT OR IGNORE INTO tags (name) VALUES (?)').bind(tag)
   );
-  if (tagInsertStmts.length > 0) await env.DB.batch(tagInsertStmts);
+  for (let i = 0; i < tagInsertStmts.length; i += 100) {
+    await env.DB.batch(tagInsertStmts.slice(i, i + 100));
+  }
 
   // Phase 4: Update category counts
   const catStmts = Array.from(categoryCounts.entries()).map(([cat, count]) =>
     env.DB.prepare('UPDATE categories SET workflow_count = workflow_count + ? WHERE name = ?').bind(count, cat)
   );
-  if (catStmts.length > 0) await env.DB.batch(catStmts);
+  if (catStmts.length > 0) {
+    for (let i = 0; i < catStmts.length; i += 100) {
+      await env.DB.batch(catStmts.slice(i, i + 100));
+    }
+  }
 
   // Phase 5: Fetch tag IDs and batch insert junction records
   const tagRows = await env.DB.prepare('SELECT id, name FROM tags').all<{ id: number; name: string }>();
@@ -206,9 +219,12 @@ export async function classifyAllWorkflows(env: Env): Promise<{ classified: numb
     }
   }
 
-  // Phase 6: Batch insert logs
-  if (logStmts.length > 0) await env.DB.batch(logStmts);
+  // Phase 6: Batch insert logs (sub-batched)
+  for (let i = 0; i < logStmts.length; i += 100) {
+    await env.DB.batch(logStmts.slice(i, i + 100));
+  }
 
-  log('info', 'Classification complete (batched)', { classified: classified.length, failed: failedCount });
-  return { classified: classified.length, failed: failedCount };
+  const remaining = Math.max(0, totalPending - classified.length);
+  log('info', 'Classification complete (batched)', { classified: classified.length, failed: failedCount, remaining });
+  return { classified: classified.length, failed: failedCount, remaining };
 }

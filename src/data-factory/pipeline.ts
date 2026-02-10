@@ -102,18 +102,24 @@ export async function runFullPipeline(env: Env): Promise<FullPipelineResult> {
 }
 
 /**
- * Run a single named pipeline stage
+ * Run a single named pipeline stage with optional pagination params.
+ * For 'collect': offset/limit control which templates to process (default 500 per call).
+ * For 'embed': limit controls how many to embed per call (default 100).
  */
-export async function runSingleStage(env: Env, stageName: string): Promise<PipelineResult> {
+export async function runSingleStage(
+  env: Env,
+  stageName: string,
+  params: { offset?: number; limit?: number } = {}
+): Promise<PipelineResult> {
   switch (stageName) {
     case 'collect':
-      return runStage('collect', () => collectAndStoreTemplates(env));
+      return runStage('collect', () => collectAndStoreTemplates(env, params.offset || 0, params.limit || 500));
     case 'clean':
-      return runStage('clean', () => cleanAllWorkflows(env));
+      return runStage('clean', () => cleanAllWorkflows(env, params.limit || 500));
     case 'classify':
-      return runStage('classify', () => classifyAllWorkflows(env));
+      return runStage('classify', () => classifyAllWorkflows(env, params.limit || 500));
     case 'embed':
-      return runStage('embed', () => generateAllEmbeddings(env));
+      return runStage('embed', () => generateAllEmbeddings(env, params.limit || 100));
     default:
       return { stage: stageName, success: false, details: { error: `Unknown stage: ${stageName}` }, duration_ms: 0 };
   }

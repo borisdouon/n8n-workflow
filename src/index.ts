@@ -322,7 +322,12 @@ async function handleRestApi(env: Env, request: Request, path: string): Promise<
       // Individual pipeline stage: /api/pipeline/stage/{collect|clean|classify|embed}
       const stageMatch = path.match(/^\/api\/pipeline\/stage\/(\w+)$/);
       if (stageMatch) {
-        const result = await runSingleStage(env, stageMatch[1]!);
+        // Use already-parsed body from line 293 (request body is consumed once)
+        const params = {
+          offset: Number(body?.offset) || 0,
+          limit: Number(body?.limit) || undefined,
+        };
+        const result = await runSingleStage(env, stageMatch[1]!, params);
         return jsonResponse(result);
       }
       return jsonResponse({ error: 'Not found' }, 404);

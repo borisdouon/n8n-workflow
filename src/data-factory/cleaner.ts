@@ -111,10 +111,15 @@ function cleanWorkflow(workflow: N8nWorkflow): N8nWorkflow {
 /**
  * Clean all pending workflows in the database (batched D1 operations)
  */
-export async function cleanAllWorkflows(env: Env): Promise<{ cleaned: number; failed: number; results: CleaningResult[] }> {
+export async function cleanAllWorkflows(env: Env, limit: number = 500): Promise<{ cleaned: number; failed: number; remaining: number; results: CleaningResult[] }> {
   const rows = await env.DB.prepare(
-    "SELECT * FROM workflows WHERE processing_status = 'collecting'"
-  ).all<WorkflowRow>();
+    "SELECT * FROM workflows WHERE processing_status = 'collecting' LIMIT ?"
+  ).bind(limit).all<WorkflowRow>();
+
+  const countResult = await env.DB.prepare(
+    "SELECT COUNT(*) as cnt FROM workflows WHERE processing_status = 'collecting'"
+  ).first<{ cnt: number }>();
+  const totalPending = countResult?.cnt || 0;
 
   const results: CleaningResult[] = [];
   const updateStmts: D1PreparedStatement[] = [];
@@ -151,12 +156,17 @@ export async function cleanAllWorkflows(env: Env): Promise<{ cleaned: number; fa
     }
   }
 
-  // Execute all updates in two batches
-  if (updateStmts.length > 0) await env.DB.batch(updateStmts);
-  if (logStmts.length > 0) await env.DB.batch(logStmts);
+  // Execute all updates in sub-batches of 100 (D1 limit)
+  for (let i = 0; i < updateStmts.length; i += 100) {
+    await env.DB.batch(updateStmts.slice(i, i + 100));
+  }
+  for (let i = 0; i < logStmts.length; i += 100) {
+    await env.DB.batch(logStmts.slice(i, i + 100));
+  }
 
   const cleaned = results.filter(r => r.cleaned).length;
   const failed = results.filter(r => !r.cleaned).length;
-  log('info', 'Cleaning complete (batched)', { cleaned, failed });
-  return { cleaned, failed, results };
+  const remaining = Math.max(0, totalPending - cleaned);
+  log('info', 'Cleaning complete (batched)', { cleaned, failed, remaining });
+  return { cleaned, failed, remaining, results };
 }

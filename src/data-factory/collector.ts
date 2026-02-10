@@ -7,6 +7,7 @@
 
 import type { Env, N8nWorkflow, N8nNode, N8nConnection } from '../models/types';
 import { log } from '../utils/logger';
+import { getExpandedTemplates } from './expanded-templates';
 
 export interface RawTemplate {
   id: string;
@@ -474,16 +475,43 @@ export function buildWorkflowJson(template: RawTemplate): N8nWorkflow {
 }
 
 /**
+ * Get ALL templates: base (30) + expanded (~4970) = ~5000 total
+ */
+export function getAllTemplates(): RawTemplate[] {
+  const base = getKnowledgeBaseTemplates();
+  const expanded = getExpandedTemplates();
+  const baseIds = new Set(base.map(t => t.id));
+  const merged = [...base, ...expanded.filter(t => !baseIds.has(t.id))];
+  log('info', `Total templates: ${merged.length} (${base.length} base + ${expanded.length - (merged.length - base.length)} expanded)`);
+  return merged;
+}
+
+/**
  * Collect all templates and insert them into D1 database using batched operations.
  * Uses DB.batch() to minimize subrequests and avoid Cloudflare limits.
+ * Supports pagination: offset/limit to process chunks per Worker invocation.
  */
-export async function collectAndStoreTemplates(env: Env): Promise<{ collected: number; errors: number }> {
-  const templates = getKnowledgeBaseTemplates();
+export async function collectAndStoreTemplates(
+  env: Env,
+  offset: number = 0,
+  limit: number = 500
+): Promise<{ collected: number; errors: number; total: number; remaining: number }> {
+  const allTemplates = getAllTemplates();
+  const templates = allTemplates.slice(offset, offset + limit);
   let collected = 0;
   let errors = 0;
+  const total = allTemplates.length;
+  const remaining = Math.max(0, total - offset - limit);
+
+  // Helper: split statements into sub-batches of 100 (D1 limit)
+  async function batchExec(stmts: D1PreparedStatement[], size = 100) {
+    for (let i = 0; i < stmts.length; i += size) {
+      await env.DB.batch(stmts.slice(i, i + size));
+    }
+  }
 
   try {
-    // Batch 1: Insert all workflows
+    // Batch 1: Insert all workflows (sub-batched)
     const workflowStmts = templates.map(template => {
       const workflowJson = buildWorkflowJson(template);
       return env.DB.prepare(`
@@ -504,7 +532,7 @@ export async function collectAndStoreTemplates(env: Env): Promise<{ collected: n
         'collecting'
       );
     });
-    await env.DB.batch(workflowStmts);
+    await batchExec(workflowStmts);
     log('info', `Inserted ${templates.length} workflows`);
 
     // Batch 2: Insert all unique integration services
@@ -515,7 +543,7 @@ export async function collectAndStoreTemplates(env: Env): Promise<{ collected: n
     const serviceStmts = Array.from(allIntegrations).map(name =>
       env.DB.prepare('INSERT OR IGNORE INTO integration_services (service_name, service_type) VALUES (?, ?)').bind(name, 'API')
     );
-    await env.DB.batch(serviceStmts);
+    await batchExec(serviceStmts);
 
     // Batch 3: Insert all unique tags
     const allTags = new Set<string>();
@@ -525,7 +553,7 @@ export async function collectAndStoreTemplates(env: Env): Promise<{ collected: n
     const tagStmts = Array.from(allTags).map(tag =>
       env.DB.prepare('INSERT OR IGNORE INTO tags (name) VALUES (?)').bind(tag)
     );
-    await env.DB.batch(tagStmts);
+    await batchExec(tagStmts);
 
     // Batch 4: Insert all unique node types
     const allNodeTypes = new Set<string>();
@@ -544,7 +572,7 @@ export async function collectAndStoreTemplates(env: Env): Promise<{ collected: n
       }
     }
     if (nodeTypeStmts.length > 0) {
-      await env.DB.batch(nodeTypeStmts);
+      await batchExec(nodeTypeStmts);
     }
 
     // Fetch service and tag IDs for junction tables
@@ -567,7 +595,7 @@ export async function collectAndStoreTemplates(env: Env): Promise<{ collected: n
       }
     }
     if (wsStmts.length > 0) {
-      await env.DB.batch(wsStmts);
+      await batchExec(wsStmts);
     }
 
     // Batch 6: Insert workflow-tag junction records
@@ -583,7 +611,7 @@ export async function collectAndStoreTemplates(env: Env): Promise<{ collected: n
       }
     }
     if (wtStmts.length > 0) {
-      await env.DB.batch(wtStmts);
+      await batchExec(wtStmts);
     }
 
     // Batch 7: Insert workflow nodes
@@ -601,18 +629,15 @@ export async function collectAndStoreTemplates(env: Env): Promise<{ collected: n
       }
     }
     if (nodeStmts.length > 0) {
-      // Split into sub-batches of 50 to stay safe
-      for (let i = 0; i < nodeStmts.length; i += 50) {
-        await env.DB.batch(nodeStmts.slice(i, i + 50));
-      }
+      await batchExec(nodeStmts);
     }
 
     collected = templates.length;
-    log('info', 'Collection complete (batched)', { collected, errors });
+    log('info', 'Collection complete (batched)', { collected, errors, offset, limit, remaining });
   } catch (error) {
     errors = templates.length;
     log('error', 'Batch collection failed', { error: error instanceof Error ? error.message : String(error) });
   }
 
-  return { collected, errors };
+  return { collected, errors, total, remaining };
 }
